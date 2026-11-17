@@ -896,17 +896,32 @@ public class JSONMLTest {
 
 
     @Test
-    public void testToJSONObjectMaxDefaultNestingDepthIsRespected() {
+    public void testToJSONObjectMaxDefaultNestingDepthIsRespected() throws InterruptedException {
         final String wayTooLongMalformedXML = new String(new char[6000]).replace("\0", "<a>");
 
-        try {
-            JSONML.toJSONObject(wayTooLongMalformedXML, JSONMLParserConfiguration.ORIGINAL);
+        // Parse on a thread with an explicit stack size: on a cold JVM, the
+        // default nesting depth of 512 can exhaust a small default thread
+        // stack (for example -Xss512k) before the depth limit is reached.
+        final Throwable[] thrown = new Throwable[1];
+        Thread parser = new Thread(null, new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    JSONML.toJSONObject(wayTooLongMalformedXML, JSONMLParserConfiguration.ORIGINAL);
+                } catch (Throwable t) {
+                    thrown[0] = t;
+                }
+            }
+        }, "testToJSONObjectMaxDefaultNestingDepthIsRespected", 8L * 1024 * 1024);
+        parser.start();
+        parser.join();
 
+        if (thrown[0] == null) {
             fail("Expecting a JSONException");
-        } catch (JSONException e) {
-            assertTrue("Wrong throwable thrown: not expecting message <" + e.getMessage() + ">",
-                e.getMessage().startsWith("Maximum nesting depth of " + JSONMLParserConfiguration.DEFAULT_MAXIMUM_NESTING_DEPTH));
         }
+        assertTrue("Wrong throwable thrown: " + thrown[0], thrown[0] instanceof JSONException);
+        assertTrue("Wrong throwable thrown: not expecting message <" + thrown[0].getMessage() + ">",
+            thrown[0].getMessage().startsWith("Maximum nesting depth of " + JSONMLParserConfiguration.DEFAULT_MAXIMUM_NESTING_DEPTH));
     }
 
     @Test
